@@ -1,151 +1,88 @@
 import streamlit as st
 import pandas as pd
-import math
-from pathlib import Path
+import numpy as np
+import plotly.express as px
+from urllib.request import urlopen
+import json
 
-# Set the title and favicon that appear in the Browser's tab bar.
-st.set_page_config(
-    page_title='GDP dashboard',
-    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.
-)
+# Настройка заголовка и текста 
+st.title("COVID 19 IN THE WORLD DASHBOARD")
+st.write("""This dashboard will present the spread of COVID-19 in the world by visualizing the timeline of the total cases and deaths. As well as the total number of vaccinated people.""")
 
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
-
-@st.cache_data
-def get_gdp_data():
-    """Grab GDP data from a CSV file.
-
-    This uses caching to avoid having to read the file every time. If we were
-    reading from an HTTP endpoint instead of a file, it's a good idea to set
-    a maximum age to the cache with the TTL argument: @st.cache_data(ttl='1d')
+# Настройка боковой панели
+st.sidebar.title("About")
+st.sidebar.info(
     """
-
-    # Instead of a CSV on disk, you could read from an HTTP endpoint here too.
-    DATA_FILENAME = Path(__file__).parent/'data/gdp_data.csv'
-    raw_gdp_df = pd.read_csv(DATA_FILENAME)
-
-    MIN_YEAR = 1960
-    MAX_YEAR = 2022
-
-    # The data above has columns like:
-    # - Country Name
-    # - Country Code
-    # - [Stuff I don't care about]
-    # - GDP for 1960
-    # - GDP for 1961
-    # - GDP for 1962
-    # - ...
-    # - GDP for 2022
-    #
-    # ...but I want this instead:
-    # - Country Name
-    # - Country Code
-    # - Year
-    # - GDP
-    #
-    # So let's pivot all those year-columns into two: Year and GDP
-    gdp_df = raw_gdp_df.melt(
-        ['Country Code'],
-        [str(x) for x in range(MIN_YEAR, MAX_YEAR + 1)],
-        'Year',
-        'GDP',
-    )
-
-    # Convert years from string to integers
-    gdp_df['Year'] = pd.to_numeric(gdp_df['Year'])
-
-    return gdp_df
-
-gdp_df = get_gdp_data()
-
-# -----------------------------------------------------------------------------
-# Draw the actual page
-
-# Set the title that appears at the top of the page.
-'''
-# :earth_americas: GDP dashboard
-
-Browse GDP data from the [World Bank Open Data](https://data.worldbank.org/) website. As you'll
-notice, the data only goes to 2022 right now, and datapoints for certain years are often missing.
-But it's otherwise a great (and did I mention _free_?) source of data.
-'''
-
-# Add some spacing
-''
-''
-
-min_value = gdp_df['Year'].min()
-max_value = gdp_df['Year'].max()
-
-from_year, to_year = st.slider(
-    'Which years are you interested in?',
-    min_value=min_value,
-    max_value=max_value,
-    value=[min_value, max_value])
-
-countries = gdp_df['Country Code'].unique()
-
-if not len(countries):
-    st.warning("Select at least one country")
-
-selected_countries = st.multiselect(
-    'Which countries would you like to view?',
-    countries,
-    ['DEU', 'FRA', 'GBR', 'BRA', 'MEX', 'JPN'])
-
-''
-''
-''
-
-# Filter the data
-filtered_gdp_df = gdp_df[
-    (gdp_df['Country Code'].isin(selected_countries))
-    & (gdp_df['Year'] <= to_year)
-    & (from_year <= gdp_df['Year'])
-]
-
-st.header('GDP over time', divider='gray')
-
-''
-
-st.line_chart(
-    filtered_gdp_df,
-    x='Year',
-    y='GDP',
-    color='Country Code',
+    This app is Open Source dashboard.
+    """
 )
+st.sidebar.info("Feel free to collaborate and comment on the work. The github link can be found "
+                "[here](https://github.com/yuliianikolaenko/COVID_dashboard_proglib).")
+# Загружаем новые оптимизированные данные
+DATA = ('data.csv')
+DATE_COLUMN = 'date'
+@st.cache # для оптимизации работы приложения
 
-''
-''
+# Создадим функцию для загрузки данных
+def load_data():
+    df = pd.read_csv(DATA, parse_dates=[DATE_COLUMN])
+    return df   
+
+# Применим функцию 
+df = load_data()  
 
 
-first_year = gdp_df[gdp_df['Year'] == from_year]
-last_year = gdp_df[gdp_df['Year'] == to_year]
+# Создадим функции для визуализации количества случаев заражения, смертей и вакцинированных людей.
+def draw_map_cases():
+    fig = px.choropleth(df, locations="iso_code",
+                         color="total_cases",
+                         hover_name="location",
+                         title="Total COVID 19 cases in the world",
+                         color_continuous_scale=px.colors.sequential.Redor)
+    return fig
 
-st.header(f'GDP in {to_year}', divider='gray')
+def draw_map_deaths():
+    fig = px.choropleth(df, locations="iso_code",
+                         color="total_deaths",
+                         hover_name="location",
+                         title="Total deaths from COVID 19 in the world",
+                         color_continuous_scale=px.colors.sequential.Greys)
+    return fig
 
-''
+def draw_map_vaccine():
+    fig = px.choropleth(df, locations="iso_code",
+                         color="total_vaccinations",
+                         hover_name="location",
+                         title="Total vaccinated from COVID 19 in the world",
+                         color_continuous_scale=px.colors.sequential.Greens)
+    return fig
 
-cols = st.columns(4)
+show_data = st.sidebar.checkbox('Show raw data')
+if show_data == True:
+    st.subheader('Raw data')
+    st.markdown(
+        "#### Data on COVID-19 (coronavirus) by Our World in Data could be found [here](https://github.com/owid/covid-19-data/tree/master/public/data).")
+    st.write(df)
 
-for i, country in enumerate(selected_countries):
-    col = cols[i % len(cols)]
+# Вычислим даты для создания временного слайдера
+min_ts = min(df[DATE_COLUMN]).to_pydatetime()
+max_ts = max(df[DATE_COLUMN]).to_pydatetime()
 
-    with col:
-        first_gdp = first_year[gdp_df['Country Code'] == country]['GDP'].iat[0] / 1000000000
-        last_gdp = last_year[gdp_df['Country Code'] == country]['GDP'].iat[0] / 1000000000
+# Создадим поле выбора для даты
+show_timerange = st.sidebar.checkbox("Show date range")
+if show_timerange:
+    min_selection, max_selection = st.sidebar.slider("Timeline", min_value=min_ts, max_value=max_ts, value=[min_ts, max_ts])
+    df = df[(df[DATE_COLUMN] >= min_selection) & (df[DATE_COLUMN] <= max_selection)]
 
-        if math.isnan(first_gdp):
-            growth = 'n/a'
-            delta_color = 'off'
-        else:
-            growth = f'{last_gdp / first_gdp:,.2f}x'
-            delta_color = 'normal'
+# Создадим поле выбора для визуализации общего количества случаев, смертей или вакцинаций
+select_event = st.sidebar.selectbox('Show map', ('total_cases', 'total_deaths', 'total_vaccinations'))
+if select_event == 'total_cases':
+    st.plotly_chart(draw_map_cases(), use_container_width=True)
 
-        st.metric(
-            label=f'{country} GDP',
-            value=f'{last_gdp:,.0f}B',
-            delta=growth,
-            delta_color=delta_color
-        )
+if select_event == 'total_deaths':
+    st.plotly_chart(draw_map_deaths(), use_container_width=True)
+
+if select_event == 'total_vaccinations':
+    st.plotly_chart(draw_map_vaccine(), use_container_width=True)
+
+    
